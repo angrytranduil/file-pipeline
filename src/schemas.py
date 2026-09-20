@@ -12,6 +12,14 @@ class PayloadFingerprint(TypedDict):
     raw_sha256: str
     normalized_sha256: str
 
+
+class InputSnapshot(TypedDict):
+    source_path: str
+    snapshot_path: str
+    sha256: str
+    size_bytes: int
+
+
 class ContractField(TypedDict):
     type: str
     required: bool
@@ -72,6 +80,7 @@ class PipelineRunMetadata(TypedDict):
     finished_at: str | None
     duration_seconds: float | None
     input_path: str
+    snapshot_path: str | None
     contract_path: str
     metrics_output_path: str
     rejected_output_path: str
@@ -83,3 +92,4 @@ class PipelineRunMetadata(TypedDict):
     error_message: str | None
     error_type: str | None
     input_sha256: str | None
+    input_size_bytes: int | None

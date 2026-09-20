@@ -10,15 +10,16 @@ from src.config import (
     DEFAULT_METADATA_PATH,
     DEFAULT_OUTPUT_PATH,
     DEFAULT_REJECTED_ROWS_PATH,
+    DEFAULT_SNAPSHOT_ROOT,
     MAX_ERROR_RATE,
     PROJECT_ROOT,
 )
 from src.data_contract import load_data_contract
 from src.exceptions import DataQualityThresholdExceeded
 from src.extract import extract_orders
-from src.file_metadata import calculate_file_sha256
+from src.input_snapshot import create_input_snapshot
 from src.load import write_json
-from src.schemas import ExtractResult, PipelineRunMetadata, RunStatus
+from src.schemas import ExtractResult, InputSnapshot, PipelineRunMetadata, RunStatus
 from src.transform import calculate_metrics
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_INPUT_PATH,
         help="Path to the input orders CSV file",
+    )
+
+    parser.add_argument(
+        "--snapshot-root",
+        type=Path,
+        default=DEFAULT_SNAPSHOT_ROOT,
+        help="Root directory for run-owned input snapshots",
     )
 
     parser.add_argument(
@@ -80,6 +88,7 @@ def build_run_metadata(
     finished_at: datetime | None,
     status: RunStatus,
     input_path: Path,
+    snapshot_path: Path | None,
     contract_path: Path,
     metrics_output_path: Path,
     rejected_output_path: Path,
@@ -88,6 +97,7 @@ def build_run_metadata(
     error_message: str | None,
     error_type: str | None,
     input_sha256: str | None,
+    input_size_bytes: int | None,
 ) -> PipelineRunMetadata:
     if finished_at is None:
         finished_at_iso = None
@@ -114,6 +124,7 @@ def build_run_metadata(
         "finished_at": finished_at_iso,
         "duration_seconds": duration_seconds,
         "input_path": str(input_path),
+        "snapshot_path": None if snapshot_path is None else str(snapshot_path),
         "contract_path": str(contract_path),
         "metrics_output_path": str(metrics_output_path),
         "rejected_output_path": str(rejected_output_path),
@@ -125,6 +136,7 @@ def build_run_metadata(
         "error_type": error_type,
         "error_message": error_message,
         "input_sha256": input_sha256,
+        "input_size_bytes": input_size_bytes,
     }
 
 
@@ -139,6 +151,7 @@ def write_run_metadata(
 
 def run_pipeline(
     input_path: Path,
+    snapshot_root: Path,
     output_path: Path,
     rejected_output_path: Path,
     max_error_rate: float,
@@ -148,13 +161,17 @@ def run_pipeline(
     started_at = datetime.now(UTC)
     run_id = str(uuid4())
     extract_result: ExtractResult | None = None
+    snapshot_path: Path | None = None
     input_sha256: str | None = None
+    input_size_bytes: int | None = None
+    input_snapshot: InputSnapshot
     metadata = build_run_metadata(
         run_id=run_id,
         status="running",
         started_at=started_at,
         finished_at=None,
         input_path=input_path,
+        snapshot_path=snapshot_path,
         contract_path=contract_path,
         metrics_output_path=output_path,
         rejected_output_path=rejected_output_path,
@@ -163,14 +180,21 @@ def run_pipeline(
         error_message=None,
         error_type=None,
         input_sha256=input_sha256,
+        input_size_bytes=input_size_bytes,
     )
     write_run_metadata(metadata_output_path, metadata)
 
     try:
         load_data_contract(contract_path)
-        input_sha256 = calculate_file_sha256(input_path)
-
-        extract_result = extract_orders(input_path, max_error_rate=max_error_rate)
+        input_snapshot = create_input_snapshot(
+            source_path=input_path,
+            snapshot_root=snapshot_root,
+            run_id=run_id,
+        )
+        snapshot_path = Path(input_snapshot["snapshot_path"])
+        input_sha256 = input_snapshot["sha256"]
+        input_size_bytes = input_snapshot["size_bytes"]
+        extract_result = extract_orders(snapshot_path, max_error_rate=max_error_rate)
         write_json(rejected_output_path, extract_result["rejected_rows"])
         metrics = calculate_metrics(extract_result["orders"])
         write_json(output_path, metrics)
@@ -197,6 +221,7 @@ def run_pipeline(
             finished_at=finished_at,
             status="failed",
             input_path=input_path,
+            snapshot_path=snapshot_path,
             contract_path=contract_path,
             metrics_output_path=output_path,
             rejected_output_path=rejected_output_path,
@@ -205,6 +230,7 @@ def run_pipeline(
             error_message=str(error),
             error_type=type(error).__name__,
             input_sha256=input_sha256,
+            input_size_bytes=input_size_bytes,
         )
         write_run_metadata(metadata_output_path, metadata)
         raise
@@ -216,6 +242,7 @@ def run_pipeline(
             finished_at=finished_at,
             status="success",
             input_path=input_path,
+            snapshot_path=snapshot_path,
             contract_path=contract_path,
             metrics_output_path=output_path,
             rejected_output_path=rejected_output_path,
@@ -224,6 +251,7 @@ def run_pipeline(
             error_message=None,
             error_type=None,
             input_sha256=input_sha256,
+            input_size_bytes=input_size_bytes,
         )
 
         write_run_metadata(metadata_output_path, metadata)
@@ -241,6 +269,7 @@ def main() -> None:
     logger.info("Project root: %s", PROJECT_ROOT)
     logger.info("Contract JSON path: %s", args.contract)
     logger.info("Input CSV path: %s", args.input)
+    logger.info("Snapshot root path: %s", args.snapshot_root)
     logger.info("Output JSON path: %s", args.output)
     logger.info("Rejected rows JSON path: %s", args.rejected_output)
     logger.info("Run metadata JSON path: %s", args.metadata_output)
@@ -249,6 +278,7 @@ def main() -> None:
     try:
         run_pipeline(
             input_path=args.input,
+            snapshot_root=args.snapshot_root,
             output_path=args.output,
             rejected_output_path=args.rejected_output,
             max_error_rate=args.max_error_rate,

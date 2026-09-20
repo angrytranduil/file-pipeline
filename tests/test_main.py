@@ -7,6 +7,7 @@ from src.config import (
     DEFAULT_METADATA_PATH,
     DEFAULT_OUTPUT_PATH,
     DEFAULT_REJECTED_ROWS_PATH,
+    DEFAULT_SNAPSHOT_ROOT,
     MAX_ERROR_RATE,
 )
 from src.main import build_run_metadata, parse_args
@@ -17,6 +18,7 @@ def test_parse_args_uses_default_paths():
     args = parse_args([])
 
     assert args.input == DEFAULT_INPUT_PATH
+    assert args.snapshot_root == DEFAULT_SNAPSHOT_ROOT
     assert args.output == DEFAULT_OUTPUT_PATH
     assert args.rejected_output == DEFAULT_REJECTED_ROWS_PATH
     assert args.metadata_output == DEFAULT_METADATA_PATH
@@ -29,6 +31,8 @@ def test_parse_args_uses_custom_paths():
         [
             "--input",
             "data/raw/custom_orders.csv",
+            "--snapshot-root",
+            "data/snapshots/custom",
             "--output",
             "data/processed/custom_metrics.json",
             "--rejected-output",
@@ -41,6 +45,7 @@ def test_parse_args_uses_custom_paths():
     )
 
     assert args.input == Path("data/raw/custom_orders.csv")
+    assert args.snapshot_root == Path("data/snapshots/custom")
     assert args.output == Path("data/processed/custom_metrics.json")
     assert args.rejected_output == Path("data/rejected/custom_rejected_orders.json")
     assert args.metadata_output == Path("data/processed/custom_run_metadata.json")
@@ -61,6 +66,17 @@ def test_parse_args_allows_contract_override_only():
 def test_parse_args_allows_input_override_only():
     args = parse_args(["--input", "data/raw/custom_orders.csv"])
     assert args.input == Path("data/raw/custom_orders.csv")
+    assert args.output == DEFAULT_OUTPUT_PATH
+    assert args.rejected_output == DEFAULT_REJECTED_ROWS_PATH
+    assert args.metadata_output == DEFAULT_METADATA_PATH
+    assert args.max_error_rate == MAX_ERROR_RATE
+
+
+def test_parse_args_allows_snapshot_root_override_only():
+    args = parse_args(["--snapshot-root", "data/snapshots/custom"])
+
+    assert args.input == DEFAULT_INPUT_PATH
+    assert args.snapshot_root == Path("data/snapshots/custom")
     assert args.output == DEFAULT_OUTPUT_PATH
     assert args.rejected_output == DEFAULT_REJECTED_ROWS_PATH
     assert args.metadata_output == DEFAULT_METADATA_PATH
@@ -151,6 +167,7 @@ def test_build_run_metadata_returns_success_metadata():
         finished_at=finished_at,
         status="success",
         input_path=DEFAULT_INPUT_PATH,
+        snapshot_path=DEFAULT_SNAPSHOT_ROOT / run_id / DEFAULT_INPUT_PATH.name,
         contract_path=DEFAULT_CONTRACT_PATH,
         metrics_output_path=DEFAULT_OUTPUT_PATH,
         rejected_output_path=DEFAULT_REJECTED_ROWS_PATH,
@@ -159,6 +176,7 @@ def test_build_run_metadata_returns_success_metadata():
         error_message=None,
         error_type=None,
         input_sha256="test-sha256",
+        input_size_bytes=123,
     )
 
     assert metadata["run_id"] == run_id
@@ -167,6 +185,9 @@ def test_build_run_metadata_returns_success_metadata():
     assert metadata["finished_at"] == finished_at.isoformat()
     assert metadata["duration_seconds"] == 2.0
     assert metadata["input_path"] == str(DEFAULT_INPUT_PATH)
+    assert metadata["snapshot_path"] == str(
+        DEFAULT_SNAPSHOT_ROOT / run_id / DEFAULT_INPUT_PATH.name
+    )
     assert metadata["contract_path"] == str(DEFAULT_CONTRACT_PATH)
     assert metadata["metrics_output_path"] == str(DEFAULT_OUTPUT_PATH)
     assert metadata["rejected_output_path"] == str(DEFAULT_REJECTED_ROWS_PATH)
@@ -178,6 +199,7 @@ def test_build_run_metadata_returns_success_metadata():
     assert metadata["error_message"] is None
     assert metadata["error_type"] is None
     assert metadata["input_sha256"] == "test-sha256"
+    assert metadata["input_size_bytes"] == 123
 
 
 def test_build_run_metadata_returns_running_metadata():
@@ -189,6 +211,7 @@ def test_build_run_metadata_returns_running_metadata():
         finished_at=None,
         status="running",
         input_path=DEFAULT_INPUT_PATH,
+        snapshot_path=None,
         contract_path=DEFAULT_CONTRACT_PATH,
         metrics_output_path=DEFAULT_OUTPUT_PATH,
         rejected_output_path=DEFAULT_REJECTED_ROWS_PATH,
@@ -197,6 +220,7 @@ def test_build_run_metadata_returns_running_metadata():
         error_message=None,
         error_type=None,
         input_sha256=None,
+        input_size_bytes=None,
     )
 
     assert metadata["run_id"] == "test-running-id"
@@ -205,6 +229,7 @@ def test_build_run_metadata_returns_running_metadata():
     assert metadata["finished_at"] is None
     assert metadata["duration_seconds"] is None
     assert metadata["contract_path"] == str(DEFAULT_CONTRACT_PATH)
+    assert metadata["snapshot_path"] is None
     assert metadata["total_rows"] is None
     assert metadata["valid_rows_count"] is None
     assert metadata["rejected_rows_count"] is None
@@ -212,3 +237,4 @@ def test_build_run_metadata_returns_running_metadata():
     assert metadata["error_message"] is None
     assert metadata["error_type"] is None
     assert metadata["input_sha256"] is None
+    assert metadata["input_size_bytes"] is None

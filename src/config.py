@@ -4,6 +4,7 @@ from src.schemas import OrderStatus
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT_PATH: Path = PROJECT_ROOT / "data" / "raw" / "orders.csv"
+DEFAULT_SNAPSHOT_ROOT: Path = PROJECT_ROOT / "data" / "snapshots"
 DEFAULT_OUTPUT_PATH: Path = PROJECT_ROOT / "data" / "processed" / "order_metrics.json"
 DEFAULT_REJECTED_ROWS_PATH: Path = (
     PROJECT_ROOT / "data" / "rejected" / "rejected_orders.json"

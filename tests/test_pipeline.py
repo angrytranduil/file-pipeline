@@ -30,6 +30,7 @@ def test_pipeline_fail_when_input_not_exists(
     with pytest.raises(FileNotFoundError):
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_rows_path,
             max_error_rate=MAX_ERROR_RATE,
@@ -64,9 +65,10 @@ def test_pipeline_processes_orders_csv_and_writes_metrics_json(
 4,104,2026-09-02,320.10,paid
 5,105,2026-09-03,15.00,failed"""
     input_path.write_text(csv_contents, encoding="utf-8")
-
+    snapshot_root = tmp_path / "snapshots"
     run_pipeline(
         input_path=input_path,
+        snapshot_root=snapshot_root,
         output_path=output_path,
         rejected_output_path=rejected_output_path,
         max_error_rate=0.0,
@@ -82,6 +84,19 @@ def test_pipeline_processes_orders_csv_and_writes_metrics_json(
 
     with metadata_output_path.open("r", encoding="utf-8") as file:
         metadata = json.load(file)
+
+    snapshot_path_value = metadata["snapshot_path"]
+
+    assert snapshot_path_value is not None
+
+    snapshot_path = Path(snapshot_path_value)
+    snapshot_bytes = snapshot_path.read_bytes()
+
+    assert snapshot_path == snapshot_root / metadata["run_id"] / input_path.name
+    assert snapshot_path.is_file()
+    assert snapshot_bytes == input_path.read_bytes()
+    assert metadata["input_size_bytes"] == len(snapshot_bytes)
+    assert metadata["input_sha256"] == calculate_file_sha256(snapshot_path)
 
     assert actual_metrics == {
         "orders_count": 5,
@@ -103,7 +118,6 @@ def test_pipeline_processes_orders_csv_and_writes_metrics_json(
     assert metadata["rejected_rows_count"] == 0
     assert metadata["error_rate"] == 0.0
     assert metadata["error_message"] is None
-    assert metadata["input_sha256"] == calculate_file_sha256(input_path)
     assert metadata["duration_seconds"] >= 0
     assert str(UUID(metadata["run_id"])) == metadata["run_id"]
     assert metadata["finished_at"] >= metadata["started_at"]
@@ -126,6 +140,7 @@ def test_pipeline_writes_metrics_and_rejected_rows_for_invalid_input_rows(
 
     run_pipeline(
         input_path=input_path,
+        snapshot_root=tmp_path / "snapshots",
         output_path=output_path,
         rejected_output_path=rejected_output_path,
         max_error_rate=0.5,
@@ -190,6 +205,7 @@ def test_pipeline_records_input_sha256_when_quality_threshold_is_exceeded(
     with pytest.raises(DataQualityThresholdExceeded):
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_output_path,
             max_error_rate=0.0,
@@ -203,6 +219,47 @@ def test_pipeline_records_input_sha256_when_quality_threshold_is_exceeded(
     assert metadata["status"] == "failed"
     assert metadata["input_sha256"] == calculate_file_sha256(input_path)
     assert metadata["error_type"] == "DataQualityThresholdExceeded"
+
+
+
+def test_pipeline_check_order_of_contract_and_snapshot(tmp_path: Path) -> None:
+    input_path = tmp_path / "orders.csv"
+    contract_path = tmp_path / "invalid_contract.json"
+    output_path = tmp_path / "order_metrics.json"
+    rejected_output_path = tmp_path / "rejected_orders.json"
+    metadata_output_path = tmp_path / "run_metadata.json"
+
+    input_path.write_text(
+        """order_id,customer_id,order_date,amount,status
+1,101,2026-09-01,100.00,paid""",
+        encoding="utf-8",
+    )
+
+    contract_path.write_text(
+        '{"fields"',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(json.JSONDecodeError) as exc_info:
+            run_pipeline(
+                input_path=input_path,
+                snapshot_root=tmp_path / "snapshots",
+                output_path=output_path,
+                rejected_output_path=rejected_output_path,
+                max_error_rate=0.0,
+                metadata_output_path=metadata_output_path,
+                contract_path=contract_path,
+            )
+
+    with metadata_output_path.open(encoding="utf-8") as file:
+            metadata = json.load(file)
+
+    assert metadata["contract_path"] == str(contract_path)
+    assert metadata["error_type"] == "JSONDecodeError"
+    assert metadata["snapshot_path"] is None
+
+
+
 
 
 def test_pipeline_records_invalid_json_contract_failure(tmp_path: Path) -> None:
@@ -223,9 +280,11 @@ def test_pipeline_records_invalid_json_contract_failure(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
+
     with pytest.raises(json.JSONDecodeError) as exc_info:
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_output_path,
             max_error_rate=0.0,
@@ -275,6 +334,7 @@ def test_pipeline_records_missing_contract_failure(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError) as exc_info:
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_output_path,
             max_error_rate=0.0,
@@ -316,6 +376,7 @@ def test_pipeline_validates_contract_before_reading_input(tmp_path: Path) -> Non
     with pytest.raises(DataContractValidationError) as exc_info:
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_output_path,
             max_error_rate=0.0,
@@ -357,6 +418,7 @@ def test_pipeline_succeeds_after_contract_is_fixed(
     with pytest.raises(json.JSONDecodeError):
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_output_path,
             max_error_rate=0.0,
@@ -376,6 +438,7 @@ def test_pipeline_succeeds_after_contract_is_fixed(
     valid_contract_path.write_text(valid_contract_contents, encoding="utf-8")
     returned_metadata = run_pipeline(
         input_path=input_path,
+        snapshot_root=tmp_path / "snapshots",
         output_path=output_path,
         rejected_output_path=rejected_output_path,
         max_error_rate=0.0,
@@ -427,6 +490,7 @@ def test_contract_preflight_failure_does_not_modify_existing_outputs(
 
     success_metadata = run_pipeline(
         input_path=input_path,
+        snapshot_root=tmp_path / "snapshots",
         output_path=output_path,
         rejected_output_path=rejected_output_path,
         max_error_rate=0.0,
@@ -440,6 +504,7 @@ def test_contract_preflight_failure_does_not_modify_existing_outputs(
     with pytest.raises(json.JSONDecodeError):
         run_pipeline(
             input_path=input_path,
+            snapshot_root=tmp_path / "snapshots",
             output_path=output_path,
             rejected_output_path=rejected_output_path,
             max_error_rate=0.0,
