@@ -1,0 +1,6 @@
+order_id,customer_id,order_date,amount,status
+1,101,2026-09-01,250.50,paid
+2,102,2026-09-01,99.90,paid
+3,103,2026-09-02,180.00,cancelled
+4,104,2026-09-02,320.10,paid
+5,105,2026-09-03,15.00,failed

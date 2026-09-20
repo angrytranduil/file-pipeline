@@ -1,0 +1,49 @@
+{
+  "name": "orders",
+  "version": 1,
+  "format": "csv",
+  "encoding": "utf-8-sig",
+  "allow_extra_fields": true,
+  "fields": {
+    "order_id": {
+      "type": "integer",
+      "required": true,
+      "nullable": false,
+      "minimum": 1,
+      "description": "Positive order identifier"
+    },
+    "customer_id": {
+  "type": "integer",
+  "required": true,
+  "nullable": false,
+  "minimum": 1,
+  "description": "Positive customer identifier"
+},
+"status": {
+  "type": "string",
+  "required": true,
+  "nullable": false,
+  "allowed_statuses": [
+    "paid",
+    "cancelled",
+    "failed"
+  ],
+  "description": "Current order status"
+},
+"amount": {
+  "type": "float",
+  "required": true,
+  "nullable": false,
+  "minimum": 0.00,
+  "is_finite": true,
+  "description": "Finite non-negative order amount"
+},
+"order_date":{
+  "type": "date",
+  "format": "iso8601",
+  "required": true,
+  "nullable": false,
+  "description": "Order date in ISO 8601 format"
+}
+  }
+}
